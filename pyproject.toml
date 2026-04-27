@@ -1,0 +1,37 @@
+[build-system]
+requires = ['hatchling', 'uv-dynamic-versioning']
+build-backend = 'hatchling.build'
+
+[project]
+name = 'openinference-instrumentation-baml'
+description = 'OpenInference auto-instrumentation for baml-py'
+readme = 'README.md'
+requires-python = '>=3.10'
+license = 'MIT'
+authors = [
+    {name = 'Flow Jiang', email = 'flowjzh@gmail.com'},
+]
+dependencies = [
+    'opentelemetry-api',
+    'opentelemetry-instrumentation',
+    'openinference-instrumentation>=0.1.27',
+    'openinference-semantic-conventions>=0.1.17',
+    'wrapt',
+]
+dynamic = ['version']
+
+[project.entry-points.opentelemetry_instrumentor]
+baml = 'openinference.instrumentation.baml:BamlInstrumentor'
+
+[project.entry-points.openinference_instrumentor]
+baml = 'openinference.instrumentation.baml:BamlInstrumentor'
+
+[project.optional-dependencies]
+instruments = ['baml-py>=0.200.0']
+
+[tool.hatch.version]
+source = 'uv-dynamic-versioning'
+
+[tool.hatch.build.targets.wheel]
+packages = ['src/openinference']
+
