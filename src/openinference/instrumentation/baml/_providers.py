@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 from openinference.instrumentation import (
+    REDACTED_VALUE,
     get_llm_input_message_attributes,
     get_llm_invocation_parameter_attributes,
     get_llm_model_name_attributes,
@@ -10,6 +11,7 @@ from openinference.instrumentation import (
     get_llm_token_count_attributes,
 )
 from openinference.instrumentation._types import Message, TokenCount
+from openinference.instrumentation.config import DEFAULT_BASE64_IMAGE_MAX_LENGTH, is_base64_url
 
 logger = logging.getLogger(__name__)
 
@@ -58,25 +60,36 @@ class _ProviderParser:
         return get_llm_token_count_attributes(token_count)
 
 
+def _normalize_message(msg: dict) -> Message:
+    result: Message = {'role': msg['role']}
+    content = msg.get('content')
+    if isinstance(content, str):
+        result['content'] = content
+    elif isinstance(content, list):
+        contents: list[dict] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get('type') == 'text' and isinstance(block.get('text'), str):
+                contents.append({'type': 'text', 'text': block['text']})
+            elif block.get('type') == 'image_url':
+                url = (block.get('image_url') or {}).get('url') if isinstance(block.get('image_url'), dict) else block.get('url')
+                if isinstance(url, str):
+                    url = REDACTED_VALUE if is_base64_url(url) and len(url) > DEFAULT_BASE64_IMAGE_MAX_LENGTH else url
+                    contents.append({'type': 'image', 'image': {'url': url}})
+        if contents:
+            result['contents'] = contents
+    if isinstance(msg.get('tool_calls'), list):
+        result['tool_calls'] = msg['tool_calls']
+    return result
+
+
 def _parse_chat_messages(raw_messages: list[Any]) -> list[Message]:
     messages: list[Message] = []
     for msg in raw_messages:
-        if not isinstance(msg, dict):
+        if not isinstance(msg, dict) or not msg.get('role'):
             continue
-        role = str(msg['role']) if msg.get('role') else None
-        if not role:
-            continue
-        content = msg.get('content')
-        if isinstance(content, str):
-            messages.append({'role': role, 'content': content})
-        elif isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if block.get('type') == 'text' and isinstance(block.get('text'), str):
-                    messages.append({'role': role, 'content': block['text']})
-                elif block.get('type') == 'image_url' and isinstance(block.get('url'), str):
-                    messages.append({'role': role, 'contents': [{'type': 'image_url', 'url': block['url']}]})
+        messages.append(_normalize_message(msg))
     return messages
 
 
@@ -107,7 +120,7 @@ class _OpenAICompatParser(_ProviderParser):
             for choice in choices:
                 msg = choice.get('message') if isinstance(choice, dict) else None
                 if isinstance(msg, dict):
-                    output_msgs.append(msg)
+                    output_msgs.append(_normalize_message(msg))
             if output_msgs:
                 attrs.update(get_llm_output_message_attributes(output_msgs))
         attrs.update(self._extract_cache_details(body.get('usage', {})))
